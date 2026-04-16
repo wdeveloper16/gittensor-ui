@@ -42,8 +42,9 @@ const useCachedSearchDataset = <T>(
     shouldFetch && cachedData === undefined,
   );
 
+  const rawData = datasetQuery.data ?? cachedData ?? [];
   return {
-    data: datasetQuery.data ?? cachedData ?? [],
+    data: Array.isArray(rawData) ? rawData : [],
     isLoading: isDatasetLoading(
       shouldFetch,
       cachedData,
