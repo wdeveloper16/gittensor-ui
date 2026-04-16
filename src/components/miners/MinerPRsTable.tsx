@@ -32,12 +32,19 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import ExplorerFilterButton from './ExplorerFilterButton';
 import TablePagination from './TablePagination';
 import { type MinerStatusFilter } from '../../utils/ExplorerUtils';
-import { headerCellStyle, bodyCellStyle } from '../../theme';
+import { headerCellStyle, bodyCellStyle, tooltipSlotProps } from '../../theme';
 
 type PrSortField = 'number' | 'repository' | 'score' | 'lines' | 'date';
 type SortDir = 'asc' | 'desc';
 
 const PAGE_SIZE = 20;
+
+const MINER_STATUS_FILTERS: readonly MinerStatusFilter[] = [
+  'all',
+  'open',
+  'merged',
+  'closed',
+];
 
 // Direction applied when a user first clicks a column header — string
 // columns feel natural ascending, numeric/date columns descending.
@@ -60,22 +67,6 @@ const getEffectiveScore = (pr: CommitLog): number => {
   return parseFloat(pr.score || '0');
 };
 
-const tooltipSlotProps = {
-  tooltip: {
-    sx: {
-      backgroundColor: 'surface.tooltip',
-      color: 'text.primary',
-      fontSize: '0.72rem',
-      padding: '8px 12px',
-      borderRadius: '6px',
-      border: '1px solid',
-      borderColor: 'border.light',
-      maxWidth: 260,
-    },
-  },
-  arrow: { sx: { color: 'surface.tooltip' } },
-};
-
 const getScoreTooltip = (pr: CommitLog): string | null => {
   const base = parseFloat(pr.baseScore || '0');
   if (!pr.mergedAt || base <= 0) return null;
@@ -87,6 +78,11 @@ const getScoreTooltip = (pr: CommitLog): string | null => {
   return parts.join(' · ');
 };
 
+const isMinerStatusFilter = (
+  value: string | null,
+): value is MinerStatusFilter =>
+  value !== null && (MINER_STATUS_FILTERS as readonly string[]).includes(value);
+
 interface MinerPRsTableProps {
   githubId: string;
 }
@@ -97,14 +93,16 @@ const MinerPRsTable: React.FC<MinerPRsTableProps> = ({ githubId }) => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: prs, isLoading } = useMinerPRs(githubId);
   const [selectedAuthor, setSelectedAuthor] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<MinerStatusFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortField, setSortField] = useState<PrSortField>('date');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const prStatusParam = searchParams.get('prStatus');
+  const statusFilter: MinerStatusFilter = isMinerStatusFilter(prStatusParam)
+    ? prStatusParam
+    : 'all';
 
   useEffect(() => {
     setSelectedAuthor(null);
-    setStatusFilter('all');
     setSearchQuery('');
     setSortField('date');
     setSortDir('desc');
@@ -125,6 +123,22 @@ const MinerPRsTable: React.FC<MinerPRsTableProps> = ({ githubId }) => {
       );
     },
     [page, setSearchParams],
+  );
+
+  const setStatusFilter = useCallback(
+    (next: MinerStatusFilter) => {
+      setSearchParams(
+        (prev) => {
+          const p = new URLSearchParams(prev);
+          if (next === 'all') p.delete('prStatus');
+          else p.set('prStatus', next);
+          p.delete('prPage');
+          return p;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
   );
 
   const handleSort = useCallback(
@@ -292,7 +306,6 @@ const MinerPRsTable: React.FC<MinerPRsTableProps> = ({ githubId }) => {
                 selected={statusFilter === 'all'}
                 onClick={() => {
                   setStatusFilter('all');
-                  setPage(0);
                 }}
               />
               <ExplorerFilterButton
@@ -302,7 +315,6 @@ const MinerPRsTable: React.FC<MinerPRsTableProps> = ({ githubId }) => {
                 selected={statusFilter === 'open'}
                 onClick={() => {
                   setStatusFilter('open');
-                  setPage(0);
                 }}
               />
               <ExplorerFilterButton
@@ -312,7 +324,6 @@ const MinerPRsTable: React.FC<MinerPRsTableProps> = ({ githubId }) => {
                 selected={statusFilter === 'merged'}
                 onClick={() => {
                   setStatusFilter('merged');
-                  setPage(0);
                 }}
               />
               <ExplorerFilterButton
@@ -322,7 +333,6 @@ const MinerPRsTable: React.FC<MinerPRsTableProps> = ({ githubId }) => {
                 selected={statusFilter === 'closed'}
                 onClick={() => {
                   setStatusFilter('closed');
-                  setPage(0);
                 }}
               />
             </Box>
