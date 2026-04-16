@@ -1,12 +1,35 @@
 import React from 'react';
-import { Box, Typography, Avatar, Paper, Link, Chip } from '@mui/material';
+import {
+  Box,
+  Typography,
+  Avatar,
+  Paper,
+  Link,
+  Chip,
+  alpha,
+} from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import { type IssueDetails } from '../../api/models/Issues';
 import { STATUS_COLORS } from '../../theme';
+
 import 'github-markdown-css/github-markdown-dark.css';
+
+/** An issue comment or the issue body rendered in the conversation timeline. */
+type ConversationItem = {
+  id: string;
+  user: {
+    login: string | null;
+    avatarUrl: string;
+    htmlUrl: string;
+  };
+  body: string;
+  createdAt: string;
+  authorAssociation: string;
+  isDescription?: boolean;
+};
 
 interface IssueConversationProps {
   issue: IssueDetails;
@@ -14,7 +37,7 @@ interface IssueConversationProps {
 
 const IssueConversation: React.FC<IssueConversationProps> = ({ issue }) => {
   const theme = useTheme();
-  const allItems = [
+  const allItems: ConversationItem[] = [
     {
       id: 'issue-description',
       user: {
@@ -63,7 +86,7 @@ const IssueConversation: React.FC<IssueConversationProps> = ({ issue }) => {
         position: 'relative',
       }}
     >
-      {allItems.map((item: any, index: number) => (
+      {allItems.map((item, index) => (
         <Box
           key={item.id}
           sx={{
@@ -92,11 +115,11 @@ const IssueConversation: React.FC<IssueConversationProps> = ({ issue }) => {
             >
               <Avatar
                 src={item.user.avatarUrl}
-                alt={item.user.login}
+                alt={item.user.login ?? undefined}
                 sx={{
                   width: 40,
                   height: 40,
-                  border: '1px solid rgba(255,255,255,0.1)',
+                  border: `1px solid ${theme.palette.border.light}`,
                   backgroundColor: theme.palette.background.paper, // Avoid transparency issues over the line
                 }}
               />
@@ -211,7 +234,7 @@ const IssueConversation: React.FC<IssueConversationProps> = ({ issue }) => {
                     label="Description"
                     sx={{
                       color: STATUS_COLORS.info,
-                      borderColor: 'rgba(56, 139, 253, 0.4)',
+                      borderColor: alpha(STATUS_COLORS.info, 0.4),
                     }}
                   />
                 )}
@@ -269,7 +292,7 @@ const IssueConversation: React.FC<IssueConversationProps> = ({ issue }) => {
                   padding: '0.2em 0.4em',
                   margin: 0,
                   fontSize: '85%',
-                  backgroundColor: 'rgba(110, 118, 129, 0.4)',
+                  backgroundColor: alpha(STATUS_COLORS.neutral, 0.4),
                   borderRadius: '6px',
                   fontFamily: '"JetBrains Mono", monospace',
                 },

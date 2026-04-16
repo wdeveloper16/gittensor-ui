@@ -1,3 +1,6 @@
+import { format } from 'date-fns';
+import { CREDIBILITY_COLORS } from '../theme';
+
 /**
  * Format a token amount for display with specified decimal places.
  * Raw values are already in Alpha units - just round to specified decimals.
@@ -28,6 +31,16 @@ export const formatTokenAmount = (
  * @param options.showZero - Whether to show "$0" for zero/negative values (default: false, returns null)
  * @returns Formatted string like "$5", "<$1", or null if value is invalid/zero
  */
+export const truncateText = (text: string, maxLength: number): string => {
+  if (!text) return '';
+  return text.length > maxLength ? `${text.substring(0, maxLength)}...` : text;
+};
+
+export const formatDate = (dateStr: string | null | undefined): string => {
+  if (!dateStr) return '-';
+  return format(new Date(dateStr), 'MMM d, yyyy');
+};
+
 export const formatUsdEstimate = (
   value: number | null | undefined,
   options?: { includeApproxPrefix?: boolean; showZero?: boolean },
@@ -48,4 +61,12 @@ export const formatUsdEstimate = (
   }
 
   return showZero ? `${prefix}$0` : null;
+};
+
+export const credibilityColor = (cred: number): string => {
+  if (cred >= 0.9) return CREDIBILITY_COLORS.excellent;
+  if (cred >= 0.7) return CREDIBILITY_COLORS.good;
+  if (cred >= 0.5) return CREDIBILITY_COLORS.moderate;
+  if (cred >= 0.3) return CREDIBILITY_COLORS.low;
+  return CREDIBILITY_COLORS.poor;
 };

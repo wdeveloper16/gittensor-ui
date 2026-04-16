@@ -48,7 +48,7 @@ export type Stats = {
         percentChange24h: number;
         percentChange7d: number;
         lastUpdated: string;
-        metadata: any;
+        metadata: Record<string, unknown>;
       } | null;
       lastUpdated: string | null;
     };
@@ -60,7 +60,7 @@ export type Stats = {
         percentChange24h: number;
         percentChange7d: number;
         lastUpdated: string;
-        metadata: any;
+        metadata: Record<string, unknown>;
       } | null;
       lastUpdated: string | null;
     };
@@ -76,6 +76,7 @@ export type CommitLog = {
   commitCount: number;
   repository: string;
   mergedAt: string | null;
+  closedAt: string | null;
   prCreatedAt: string;
   prState: string;
   collateralScore?: string;
@@ -103,6 +104,11 @@ export type CommitLog = {
 
   // Review quality
   reviewQualityMultiplier?: string;
+
+  // Label scoring
+  labelMultiplier?: number;
+  label?: string;
+  codeDensity?: number;
 
   // Payout predictions
   potentialScore?: number;
@@ -210,6 +216,9 @@ export type PullRequestDetails = {
   timeDecayMultiplier: string; // float returned as string
   credibilityMultiplier: string; // float returned as string
   reviewQualityMultiplier?: string; // float returned as string
+  labelMultiplier: number;
+  label: string | null;
+  codeDensity: number;
   earnedScore: string; // float returned as string
   collateralScore: string; // float returned as string
   additions: number;

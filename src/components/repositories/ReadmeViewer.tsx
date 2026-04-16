@@ -5,6 +5,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import axios from 'axios';
 import { STATUS_COLORS } from '../../theme';
+import { resolveRelativeUrl } from './MarkdownRenderers';
 
 interface ReadmeViewerProps {
   repositoryFullName: string; // e.g., "opentensor/bittensor"
@@ -17,6 +18,8 @@ const ReadmeViewer: React.FC<ReadmeViewerProps> = ({ repositoryFullName }) => {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const controller = new AbortController();
+
     const fetchReadme = async () => {
       setLoading(true);
       setError(null);
@@ -25,28 +28,33 @@ const ReadmeViewer: React.FC<ReadmeViewerProps> = ({ repositoryFullName }) => {
         try {
           const response = await axios.get(
             `https://cdn.jsdelivr.net/gh/${repositoryFullName}@main/README.md`,
+            { signal: controller.signal },
           );
+          if (controller.signal.aborted) return;
           setContent(response.data);
           setDefaultBranch('main');
-        } catch {
+        } catch (err) {
+          if (axios.isCancel(err) || controller.signal.aborted) return;
           // Fallback to 'master' branch
           const response = await axios.get(
             `https://cdn.jsdelivr.net/gh/${repositoryFullName}@master/README.md`,
+            { signal: controller.signal },
           );
+          if (controller.signal.aborted) return;
           setContent(response.data);
           setDefaultBranch('master');
         }
       } catch (err) {
+        if (axios.isCancel(err) || controller.signal.aborted) return;
         console.error('Failed to fetch README', err);
         setError('Could not load README.md');
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     };
 
-    if (repositoryFullName) {
-      fetchReadme();
-    }
+    if (repositoryFullName) fetchReadme();
+    return () => controller.abort();
   }, [repositoryFullName]);
 
   if (loading) {
@@ -68,37 +76,6 @@ const ReadmeViewer: React.FC<ReadmeViewerProps> = ({ repositoryFullName }) => {
     );
   }
 
-  // Custom renderer for images to handle relative paths
-  const ImageRenderer = (props: any) => {
-    const { src, alt, ...rest } = props;
-    let finalSrc = src;
-
-    if (src && !src.startsWith('http') && !src.startsWith('//')) {
-      // Convert relative path to absolute GitHub user content path
-      // e.g. ./assets/img.png -> https://raw.githubusercontent.com/user/repo/branch/assets/img.png
-      const cleanPath = src.startsWith('./')
-        ? src.slice(2)
-        : src.startsWith('/')
-          ? src.slice(1)
-          : src;
-      finalSrc = `https://cdn.jsdelivr.net/gh/${repositoryFullName}@${defaultBranch}/${cleanPath}`;
-    }
-
-    return (
-      <img
-        src={finalSrc}
-        alt={alt}
-        style={{
-          maxWidth: '100%',
-          height: 'auto',
-          borderRadius: '6px',
-          margin: '16px 0',
-        }}
-        {...rest}
-      />
-    );
-  };
-
   return (
     <Paper
       elevation={0}
@@ -117,7 +94,7 @@ const ReadmeViewer: React.FC<ReadmeViewerProps> = ({ repositoryFullName }) => {
           borderBottom: '1px solid #30363d',
           pb: 0.3,
           mb: 3,
-          mt: 1, // Reduced from 4
+          mt: 1,
           fontWeight: 600,
           color: '#ffffff',
         },
@@ -126,7 +103,7 @@ const ReadmeViewer: React.FC<ReadmeViewerProps> = ({ repositoryFullName }) => {
           borderBottom: '1px solid #30363d',
           pb: 0.3,
           mb: 3,
-          mt: 2, // Reduced from 4
+          mt: 2,
           fontWeight: 600,
           color: '#ffffff',
         },
@@ -209,7 +186,42 @@ const ReadmeViewer: React.FC<ReadmeViewerProps> = ({ repositoryFullName }) => {
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw]}
         components={{
-          img: ImageRenderer,
+          a: ({
+            href,
+            children,
+            ...rest
+          }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
+            <a
+              href={resolveRelativeUrl(href, repositoryFullName, defaultBranch)}
+              target="_blank"
+              rel="noopener noreferrer"
+              {...rest}
+            >
+              {children}
+            </a>
+          ),
+          img: ({
+            src,
+            alt,
+            ...rest
+          }: React.ImgHTMLAttributes<HTMLImageElement>) => (
+            <img
+              src={resolveRelativeUrl(
+                src,
+                repositoryFullName,
+                defaultBranch,
+                'cdn',
+              )}
+              alt={alt}
+              style={{
+                maxWidth: '100%',
+                height: 'auto',
+                borderRadius: '6px',
+                margin: '16px 0',
+              }}
+              {...rest}
+            />
+          ),
         }}
       >
         {content || ''}

@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { Page } from '../components/layout';
 import { TopMinersTable, LeaderboardSidebar, SEO } from '../components';
 import { useAllMiners } from '../api';
-import theme from '../theme';
+import { mapAllMinersToStats } from '../utils/minerMapper';
+import theme, { scrollbarSx } from '../theme';
 
 const TopMinersPage: React.FC = () => {
   const navigate = useNavigate();
@@ -19,34 +20,9 @@ const TopMinersPage: React.FC = () => {
     });
   };
 
-  // Process miner stats for TopMinersTable
-  const minerStats = useMemo(() => {
-    if (!Array.isArray(allMinersStats)) return [];
-    return allMinersStats.map((stat) => ({
-      githubId: stat.githubId || '',
-      author: stat.githubUsername || undefined,
-      totalScore: Number(stat.totalScore) || 0,
-      baseTotalScore: Number(stat.baseTotalScore) || 0,
-      totalPRs: Number(stat.totalPrs) || 0,
-      linesChanged: Number(stat.totalNodesScored) || 0,
-      linesAdded: Number(stat.totalAdditions) || 0,
-      linesDeleted: Number(stat.totalDeletions) || 0,
-      hotkey: stat.hotkey || 'N/A',
-      uniqueReposCount: Number(stat.uniqueReposCount) || 0,
-      credibility: Number(stat.credibility) || 0,
-      isEligible: stat.isEligible ?? false,
-      usdPerDay: Number(stat.usdPerDay) || 0,
-      // PR status counts for credibility donut
-      totalMergedPrs: Number(stat.totalMergedPrs) || 0,
-      totalOpenPrs: Number(stat.totalOpenPrs) || 0,
-      totalClosedPrs: Number(stat.totalClosedPrs) || 0,
-    }));
-  }, [allMinersStats]);
-
-  // Sort miners by total score
-  const sortedMinerStats = useMemo(
-    () => [...minerStats].sort((a, b) => b.totalScore - a.totalScore),
-    [minerStats],
+  const minerStats = useMemo(
+    () => mapAllMinersToStats(allMinersStats ?? []),
+    [allMinersStats],
   );
 
   // Dashboard-like responsive logic
@@ -88,19 +64,7 @@ const TopMinersPage: React.FC = () => {
             overflow: showSidebarRight ? 'auto' : 'visible',
             minWidth: 0,
             pr: showSidebarRight ? 1 : 0,
-            '&::-webkit-scrollbar': {
-              width: '8px',
-            },
-            '&::-webkit-scrollbar-track': {
-              backgroundColor: 'transparent',
-            },
-            '&::-webkit-scrollbar-thumb': {
-              backgroundColor: 'rgba(255, 255, 255, 0.1)',
-              borderRadius: '4px',
-              '&:hover': {
-                backgroundColor: 'rgba(255, 255, 255, 0.2)',
-              },
-            },
+            ...scrollbarSx,
           }}
         >
           <Typography
@@ -117,9 +81,12 @@ const TopMinersPage: React.FC = () => {
           </Typography>
           <Box sx={{ width: '100%' }}>
             <TopMinersTable
-              miners={sortedMinerStats}
+              miners={minerStats}
               isLoading={isLoadingMinerStats}
-              onSelectMiner={handleSelectMiner}
+              getHref={(m) =>
+                `/miners/details?githubId=${encodeURIComponent(m.githubId)}`
+              }
+              linkState={{ backLabel: 'Back to Leaderboard' }}
             />
           </Box>
         </Box>
