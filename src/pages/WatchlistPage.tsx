@@ -1,34 +1,38 @@
 import React, { useMemo, useState } from 'react';
 import {
+  alpha,
   Avatar,
+  Badge,
   Box,
+  Button,
   Card,
   Chip,
   CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogTitle,
   FormControl,
   Grid,
   IconButton,
   InputAdornment,
   MenuItem,
+  Paper,
   Select,
+  Stack,
+  Tab,
   TablePagination,
+  Tabs,
   TextField,
   Tooltip,
   Typography,
-  Button,
-  alpha,
-  Stack,
-  Dialog,
-  DialogTitle,
-  DialogActions,
-  Tab,
-  Tabs,
-  Badge,
   useMediaQuery,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
 import ViewListIcon from '@mui/icons-material/ViewList';
+import StarIcon from '@mui/icons-material/Star';
+import PersonIcon from '@mui/icons-material/Person';
+import FolderIcon from '@mui/icons-material/Folder';
 import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { Page } from '../components/layout';
 import {
@@ -37,6 +41,7 @@ import {
   SEO,
   WatchlistButton,
 } from '../components';
+import { MinerComparisonRadar } from '../components/miners';
 import {
   DataTable,
   type DataTableColumn,
@@ -50,7 +55,7 @@ import {
   serializePRKey,
   type WatchlistCategory,
 } from '../hooks/useWatchlist';
-import { useWatchedPRs } from '../hooks/useWatchedPRs';
+import { useWatchedPRs, type WatchedPRSource } from '../hooks/useWatchedPRs';
 import {
   isMergedPr,
   isClosedUnmergedPr,
@@ -59,7 +64,7 @@ import {
 import { filterPrs, type PrStatusFilter } from '../utils/prTable';
 import { getIssueStatusMeta } from '../utils/issueStatus';
 import { formatTokenAmount } from '../utils/format';
-import theme, { STATUS_COLORS, scrollbarSx } from '../theme';
+import theme, { CHART_COLORS, STATUS_COLORS, scrollbarSx } from '../theme';
 import FilterButton from '../components/FilterButton';
 import type { CommitLog } from '../api/models/Dashboard';
 
@@ -116,6 +121,8 @@ const tabFromParam = (param: string | null): WatchlistCategory =>
     ? (param as WatchlistCategory)
     : 'miners';
 
+const MAX_COMPARE = 4;
+
 const WatchlistPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = tabFromParam(searchParams.get('tab'));
@@ -125,6 +132,7 @@ const WatchlistPage: React.FC = () => {
   const counts = useWatchlistCounts();
   const { ids, count, clear } = useWatchlist(activeTab);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [compareOpen, setCompareOpen] = useState(false);
 
   const tabHasContent =
     activeTab === 'prs'
@@ -133,6 +141,7 @@ const WatchlistPage: React.FC = () => {
   const isEmpty = !tabHasContent;
   const noun = TAB_NOUN[activeTab];
   const discovery = TAB_DISCOVERY[activeTab];
+  const canCompare = activeTab === 'miners' && count >= 2;
 
   const isLargeScreen = useMediaQuery(theme.breakpoints.up('xl'));
   const showSidebarRight = !isEmpty && isLargeScreen;
@@ -156,6 +165,7 @@ const WatchlistPage: React.FC = () => {
   const handleClear = () => {
     clear();
     setConfirmOpen(false);
+    setCompareOpen(false);
   };
 
   const handleTabChange = (_event: React.SyntheticEvent, next: unknown) => {
@@ -225,19 +235,31 @@ const WatchlistPage: React.FC = () => {
                 ' Also shows PRs from watched miners and repositories.'}{' '}
               Stored locally in this browser.
             </Typography>
-            {count > 0 && (
-              <Button
-                size="small"
-                onClick={() => setConfirmOpen(true)}
-                sx={{
-                  fontSize: '0.75rem',
-                  textTransform: 'none',
-                  color: 'text.secondary',
-                }}
-              >
-                Clear {noun.plural}
-              </Button>
-            )}
+            <Stack direction="row" spacing={1} alignItems="center">
+              {canCompare && (
+                <Button
+                  size="small"
+                  variant={compareOpen ? 'contained' : 'outlined'}
+                  onClick={() => setCompareOpen((v) => !v)}
+                  sx={{ fontSize: '0.75rem', textTransform: 'none' }}
+                >
+                  {compareOpen ? 'Hide comparison' : 'Compare'}
+                </Button>
+              )}
+              {count > 0 && (
+                <Button
+                  size="small"
+                  onClick={() => setConfirmOpen(true)}
+                  sx={{
+                    fontSize: '0.75rem',
+                    textTransform: 'none',
+                    color: 'text.secondary',
+                  }}
+                >
+                  Clear {noun.plural}
+                </Button>
+              )}
+            </Stack>
           </Stack>
 
           <Box sx={{ borderBottom: '1px solid', borderColor: 'border.light' }}>
@@ -326,7 +348,7 @@ const WatchlistPage: React.FC = () => {
               </Button>
             </Box>
           ) : activeTab === 'miners' ? (
-            <MinersList itemKeys={ids} />
+            <MinersList itemKeys={ids} compareOpen={compareOpen} />
           ) : activeTab === 'repos' ? (
             <ReposList itemKeys={ids} />
           ) : activeTab === 'bounties' ? (
@@ -503,24 +525,141 @@ const StatusPill: React.FC<StatusPillProps> = ({
   </Typography>
 );
 
-const MinersList: React.FC<{ itemKeys: string[] }> = ({ itemKeys }) => {
+const MinersList: React.FC<{ itemKeys: string[]; compareOpen: boolean }> = ({
+  itemKeys,
+  compareOpen,
+}) => {
   const { data: allMinersStats, isLoading } = useAllMiners();
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const watchedSet = useMemo(() => new Set(itemKeys), [itemKeys]);
 
-  const minerStats = useMemo(() => {
-    const all = mapAllMinersToStats(allMinersStats ?? []);
-    return all
-      .filter((m) => watchedSet.has(m.githubId))
-      .map((m) => ({
-        ...m,
-        // Watchlist cards should be enabled if miner is eligible for either
-        // OSS contributions or Issue Discoveries.
-        isEligible: Boolean(m.ossIsEligible || m.discoveriesIsEligible),
-      }));
-  }, [allMinersStats, watchedSet]);
+  const allMinerStats = useMemo(
+    () => mapAllMinersToStats(allMinersStats ?? []),
+    [allMinersStats],
+  );
+
+  const minerStats = useMemo(
+    () =>
+      allMinerStats
+        .filter((m) => watchedSet.has(m.githubId))
+        .map((m) => ({
+          ...m,
+          // Watchlist cards should be enabled if miner is eligible for either
+          // OSS contributions or Issue Discoveries.
+          isEligible: Boolean(m.ossIsEligible || m.discoveriesIsEligible),
+        })),
+    [allMinerStats, watchedSet],
+  );
+
+  const needsPicker = minerStats.length > MAX_COMPARE;
+
+  const comparisonMiners = useMemo(() => {
+    if (!needsPicker) return minerStats;
+    const picked = selectedIds
+      .map((id) => minerStats.find((m) => m.githubId === id))
+      .filter((m): m is (typeof minerStats)[number] => Boolean(m));
+    if (picked.length === 0) return minerStats.slice(0, MAX_COMPARE);
+    return picked.slice(0, MAX_COMPARE);
+  }, [minerStats, selectedIds, needsPicker]);
+
+  const toggleSelected = (githubId: string) => {
+    setSelectedIds((prev) => {
+      const current =
+        prev.length > 0
+          ? prev
+          : minerStats.slice(0, MAX_COMPARE).map((m) => m.githubId);
+      if (current.includes(githubId)) {
+        return current.filter((id) => id !== githubId);
+      }
+      if (current.length >= MAX_COMPARE) return current;
+      return [...current, githubId];
+    });
+  };
+
+  const colorForMiner = (githubId: string) => {
+    const idx = comparisonMiners.findIndex((m) => m.githubId === githubId);
+    return idx >= 0
+      ? CHART_COLORS.series[idx % CHART_COLORS.series.length]
+      : null;
+  };
+
+  const showCompare = compareOpen && minerStats.length >= 2;
 
   return (
-    <Box sx={{ width: '100%' }}>
+    <Box
+      sx={{
+        width: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: { xs: 2, sm: 1.5 },
+      }}
+    >
+      {showCompare && (
+        <Paper
+          variant="outlined"
+          sx={{
+            p: { xs: 2, sm: 2.5 },
+            backgroundColor: 'surface.subtle',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 1.5,
+          }}
+        >
+          {needsPicker && (
+            <Box
+              sx={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: 0.75,
+                alignItems: 'center',
+              }}
+            >
+              <Typography
+                sx={{
+                  fontSize: '0.75rem',
+                  color: (t) => alpha(t.palette.text.primary, 0.6),
+                  mr: 0.5,
+                }}
+              >
+                Pick up to {MAX_COMPARE}:
+              </Typography>
+              {minerStats.map((m) => {
+                const color = colorForMiner(m.githubId);
+                const active = Boolean(color);
+                return (
+                  <Chip
+                    key={m.githubId}
+                    label={m.author || m.githubId}
+                    size="small"
+                    clickable
+                    onClick={() => toggleSelected(m.githubId)}
+                    sx={{
+                      fontSize: '0.72rem',
+                      height: 24,
+                      borderRadius: 1.5,
+                      border: '1px solid',
+                      borderColor: active
+                        ? color!
+                        : (t) => alpha(t.palette.common.white, 0.15),
+                      backgroundColor: active ? `${color}22` : 'transparent',
+                      color: active ? color! : 'text.secondary',
+                      '&:hover': {
+                        backgroundColor: active
+                          ? `${color}33`
+                          : (t) => alpha(t.palette.common.white, 0.05),
+                      },
+                    }}
+                  />
+                );
+              })}
+            </Box>
+          )}
+          <MinerComparisonRadar
+            miners={comparisonMiners}
+            allMiners={allMinerStats}
+          />
+        </Paper>
+      )}
       <TopMinersTable
         miners={minerStats}
         isLoading={isLoading}
@@ -627,7 +766,77 @@ type PrSortKey = 'pr' | 'title' | 'repo' | 'author' | 'score';
 
 const prCellSx = { py: 1.5 } as const;
 
-const prColumns: DataTableColumn<CommitLog, PrSortKey>[] = [
+const SOURCE_META: Record<
+  WatchedPRSource,
+  { label: string; tooltip: string; Icon: typeof StarIcon; color: string }
+> = {
+  starred: {
+    label: 'Starred',
+    tooltip: 'You starred this pull request',
+    Icon: StarIcon,
+    color: '#facc15',
+  },
+  miner: {
+    label: 'Miner',
+    tooltip: 'From a watched miner',
+    Icon: PersonIcon,
+    color: '#60a5fa',
+  },
+  repo: {
+    label: 'Repo',
+    tooltip: 'From a watched repository',
+    Icon: FolderIcon,
+    color: '#a78bfa',
+  },
+};
+
+const SOURCE_RENDER_ORDER: WatchedPRSource[] = ['starred', 'miner', 'repo'];
+
+const WatchedSourceBadges: React.FC<{ sources: WatchedPRSource[] }> = ({
+  sources,
+}) => {
+  if (sources.length === 0) return null;
+  const present = new Set(sources);
+  return (
+    <Stack
+      direction="row"
+      spacing={0.5}
+      alignItems="center"
+      role="list"
+      aria-label="Reasons this PR is in your watchlist"
+    >
+      {SOURCE_RENDER_ORDER.filter((s) => present.has(s)).map((s) => {
+        const { label, tooltip, Icon, color } = SOURCE_META[s];
+        return (
+          <Tooltip key={s} title={tooltip} placement="top" arrow>
+            <Box
+              role="listitem"
+              aria-label={label}
+              sx={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 22,
+                height: 22,
+                borderRadius: 1,
+                backgroundColor: alpha(color, 0.14),
+                border: '1px solid',
+                borderColor: alpha(color, 0.35),
+                color,
+              }}
+            >
+              <Icon sx={{ fontSize: '0.85rem' }} />
+            </Box>
+          </Tooltip>
+        );
+      })}
+    </Stack>
+  );
+};
+
+const buildPrColumns = (
+  sourcesByKey: Map<string, WatchedPRSource[]>,
+): DataTableColumn<CommitLog, PrSortKey>[] => [
   {
     key: 'pr',
     header: 'PR',
@@ -736,6 +945,22 @@ const prColumns: DataTableColumn<CommitLog, PrSortKey>[] = [
     ),
   },
   {
+    key: 'source',
+    header: 'Why',
+    width: '92px',
+    align: 'center',
+    cellSx: prCellSx,
+    renderCell: (pr) => (
+      <WatchedSourceBadges
+        sources={
+          sourcesByKey.get(
+            serializePRKey(pr.repository, pr.pullRequestNumber),
+          ) ?? []
+        }
+      />
+    ),
+  },
+  {
     key: 'watch',
     header: '★',
     width: '52px',
@@ -815,7 +1040,10 @@ const PRsViewModeToggle: React.FC<{
 const getPrHref = (pr: CommitLog) =>
   `/miners/pr?repo=${encodeURIComponent(pr.repository)}&number=${pr.pullRequestNumber}`;
 
-const PRCard: React.FC<{ pr: CommitLog }> = ({ pr }) => {
+const PRCard: React.FC<{
+  pr: CommitLog;
+  sources?: WatchedPRSource[];
+}> = ({ pr, sources = [] }) => {
   const { label, color } = prStatusMeta(pr);
   const key = serializePRKey(pr.repository, pr.pullRequestNumber);
   return (
@@ -895,6 +1123,7 @@ const PRCard: React.FC<{ pr: CommitLog }> = ({ pr }) => {
               backgroundColor: alpha(color, 0.08),
             }}
           />
+          <WatchedSourceBadges sources={sources} />
           <WatchlistButton category="prs" itemKey={key} size="small" />
         </Stack>
       </Box>
@@ -994,7 +1223,8 @@ const PRCard: React.FC<{ pr: CommitLog }> = ({ pr }) => {
 const PR_ROWS_OPTIONS = [10, 25, 50] as const;
 
 const PRsList: React.FC<{ itemKeys: string[] }> = ({ itemKeys }) => {
-  const { items, isLoading } = useWatchedPRs(itemKeys);
+  const { items, sourcesByKey, isLoading } = useWatchedPRs(itemKeys);
+  const prColumns = useMemo(() => buildPrColumns(sourcesByKey), [sourcesByKey]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<PrStatusFilter>('all');
   const [viewMode, setViewMode] = useState<PRsViewMode>('list');
@@ -1237,7 +1467,12 @@ const PRsList: React.FC<{ itemKeys: string[] }> = ({ itemKeys }) => {
                   sx={{ display: 'flex' }}
                 >
                   <Box sx={{ width: '100%' }}>
-                    <PRCard pr={pr} />
+                    <PRCard
+                      pr={pr}
+                      sources={sourcesByKey.get(
+                        serializePRKey(pr.repository, pr.pullRequestNumber),
+                      )}
+                    />
                   </Box>
                 </Grid>
               ))}
