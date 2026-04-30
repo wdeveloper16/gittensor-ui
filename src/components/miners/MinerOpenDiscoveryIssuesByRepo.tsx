@@ -813,7 +813,7 @@ const MinerOpenDiscoveryIssuesByRepo: React.FC<
       >
         <TextField
           size="small"
-          placeholder="Search by title, repo, or issue #..."
+          placeholder="Search by title, repo, or issue..."
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
           InputProps={{
@@ -830,7 +830,7 @@ const MinerOpenDiscoveryIssuesByRepo: React.FC<
           }}
           sx={{
             maxWidth: 400,
-            minWidth: 260,
+            minWidth: 320,
             '& .MuiOutlinedInput-root': {
               fontSize: '0.8rem',
               color: 'text.primary',
