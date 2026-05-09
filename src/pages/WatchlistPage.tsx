@@ -74,7 +74,10 @@ import type { IssueBounty } from '../api/models/Issues';
 import { usePrices } from '../hooks/usePrices';
 import { BountyCard } from '../components/issues/BountyCard';
 import { mapAllMinersToStats } from '../utils/minerMapper';
-import { buildRepoDiscoveryRollupFromMiners } from '../utils/ExplorerUtils';
+import {
+  buildRepoDiscoveryRollupFromMiners,
+  isOutsideScoringWindow,
+} from '../utils/ExplorerUtils';
 import {
   useWatchlist,
   useWatchlistCounts,
@@ -910,6 +913,10 @@ const MinersList: React.FC<{ itemKeys: string[] }> = ({ itemKeys }) => {
 };
 
 type WatchedRepoStats = Repository & {
+  // Hoisted from `config` for downstream sort/render code; populated when
+  // constructing each row from the API Repository.
+  weight: number | string;
+  inactiveAt: string | null | undefined;
   totalScore: number;
   totalPRs: number;
   uniqueMiners: Set<string>;
@@ -918,7 +925,7 @@ type WatchedRepoStats = Repository & {
   discoveryContributors: Set<string>;
 };
 
-const isRepoActive = (repo: Repository): boolean => !repo.inactiveAt;
+const isRepoActive = (repo: Repository): boolean => !repo.config?.inactiveAt;
 
 type RepoStatusFilter = 'all' | 'active' | 'inactive';
 
@@ -1093,7 +1100,7 @@ const repoColumns: DataTableColumn<WatchedRepoStats, RepoSortKey>[] = [
     cellSx: repoCellSx,
     renderCell: (repo) => (
       <Typography sx={{ fontSize: '0.75rem', fontWeight: 600 }}>
-        {parseFloat(String(repo.weight)).toFixed(2)}
+        {parseFloat(String(repo.config?.weight ?? 0)).toFixed(2)}
       </Typography>
     ),
   },
@@ -1363,8 +1370,8 @@ const RepoCard: React.FC<{ repo: WatchedRepoStats; maxWeight: number }> = ({
 }) => {
   const { label, color } = repoStatusMeta(repo);
   const owner = repo.fullName.split('/')[0] || '';
-  const weight = parseFloat(String(repo.weight)) || 0;
-  const isInactive = !!repo.inactiveAt;
+  const weight = parseFloat(String(repo.config?.weight ?? 0));
+  const isInactive = !!repo.config?.inactiveAt;
   const weightPct =
     maxWeight > 0 ? Math.max(0, Math.min(100, (weight / maxWeight) * 100)) : 0;
 
@@ -1627,6 +1634,8 @@ const ReposList: React.FC<{ itemKeys: string[] }> = ({ itemKeys }) => {
         const d = discoveryByRepo.get(key);
         return {
           ...r,
+          weight: r.config?.weight ?? 0,
+          inactiveAt: r.config?.inactiveAt ?? null,
           totalScore: s?.totalScore || 0,
           totalPRs: s?.totalPRs || 0,
           uniqueMiners: s?.uniqueMiners || new Set<string>(),
@@ -1670,8 +1679,8 @@ const ReposList: React.FC<{ itemKeys: string[] }> = ({ itemKeys }) => {
           return cmpStr(a.fullName, b.fullName);
         case 'weight':
           return cmpNum(
-            parseFloat(String(a.weight)),
-            parseFloat(String(b.weight)),
+            parseFloat(String(a.config?.weight ?? 0)),
+            parseFloat(String(b.config?.weight ?? 0)),
           );
         case 'totalScore':
           return cmpNum(a.totalScore, b.totalScore);
@@ -1720,7 +1729,10 @@ const ReposList: React.FC<{ itemKeys: string[] }> = ({ itemKeys }) => {
 
   const maxWeight = useMemo(
     () =>
-      items.reduce((m, r) => Math.max(m, parseFloat(String(r.weight)) || 0), 0),
+      items.reduce(
+        (m, r) => Math.max(m, parseFloat(String(r.config?.weight ?? 0))),
+        0,
+      ),
     [items],
   );
 
@@ -1735,7 +1747,7 @@ const ReposList: React.FC<{ itemKeys: string[] }> = ({ itemKeys }) => {
     const chartData = paged.map((repo) => ({
       name: repo.fullName.split('/')[1] || repo.fullName,
       repository: repo.fullName,
-      value: parseFloat(String(repo.weight)) || 0,
+      value: parseFloat(String(repo.config?.weight ?? 0)),
     }));
 
     const barGradient = {
@@ -2881,6 +2893,7 @@ const PRCard: React.FC<{
 }> = ({ pr, sources = [] }) => {
   const { label, color } = prStatusMeta(pr);
   const key = serializePRKey(pr.repository, pr.pullRequestNumber);
+  const isStale = !!pr.mergedAt && isOutsideScoringWindow(pr.mergedAt);
   return (
     <Card
       elevation={0}
@@ -2890,6 +2903,7 @@ const PRCard: React.FC<{
         backdropFilter: 'blur(12px)',
         border: '1px solid',
         borderColor: alpha(color, 0.3),
+        ...(isStale && { opacity: 0.4, filter: 'grayscale(0.5)' }),
         borderRadius: 2,
         cursor: 'pointer',
         transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -3240,6 +3254,11 @@ const PRsList: React.FC<{ itemKeys: string[] }> = ({ itemKeys }) => {
           stickyHeader
           isLoading={isLoading && items.length === 0}
           emptyLabel="No watched pull requests found."
+          getRowSx={(pr) =>
+            pr.mergedAt && isOutsideScoringWindow(pr.mergedAt)
+              ? { opacity: 0.4, filter: 'grayscale(0.5)' }
+              : {}
+          }
           sort={{
             field: sortField,
             order: sortOrder,
@@ -3630,6 +3649,7 @@ const IssueCard: React.FC<{
 }> = ({ issue, sources = [] }) => {
   const { label, color } = issueStatusMeta(issue);
   const prNumber = issue.solving_pr?.pr_number ?? issue.solved_by_pr ?? null;
+  const isStale = !!issue.closed_at && isOutsideScoringWindow(issue.closed_at);
   return (
     <Card
       elevation={0}
@@ -3639,6 +3659,7 @@ const IssueCard: React.FC<{
         backdropFilter: 'blur(12px)',
         border: '1px solid',
         borderColor: alpha(color, 0.3),
+        ...(isStale && { opacity: 0.4, filter: 'grayscale(0.5)' }),
         borderRadius: 2,
         cursor: 'pointer',
         transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -3989,6 +4010,11 @@ const IssuesList: React.FC<{ minerIds: string[] }> = ({ minerIds }) => {
           stickyHeader
           isLoading={isLoading && items.length === 0}
           emptyLabel="No issues found for the watched miners."
+          getRowSx={(issue) =>
+            issue.closed_at && isOutsideScoringWindow(issue.closed_at)
+              ? { opacity: 0.4, filter: 'grayscale(0.5)' }
+              : {}
+          }
           sort={{
             field: sortField,
             order: sortOrder,
